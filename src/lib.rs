@@ -1,13 +1,13 @@
 //! Implementation of the [ctlv format](https://github.com/AljoschaMeyer/ctlv) in rust.
+//!
+//! None of the structs enforce type-implied lengths upon serialization. It is up to the
+//! user to ensure that ctlvs with a type below 128 contain data of the correct length.
 
 extern crate varu64;
 
 use varu64::DecodeError as VarU64Error;
 
 use std::{fmt, error};
-
-// TODO enforce match between type and length, or leave it unsafe?
-// TODO test
 
 /// Everything that can go wrong when decoding a ctlv.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -108,7 +108,7 @@ impl<'a> CtlvRef<'a> {
     /// Return how many bytes the encoding of the `CtlvRef` will take up.
     pub fn encoding_length(&self) -> usize {
         let length = self.value.len();
-        let length_len = if length < 128 {
+        let length_len = if self.type_ < 128 {
             0
         } else {
             varu64::encoding_length(length as u64)
@@ -125,7 +125,7 @@ impl<'a> CtlvRef<'a> {
         let mut total = varu64::encode(self.type_, out);
         let length: usize = self.value.len();
 
-        if length >= 128 {
+        if self.type_ >= 128 {
             total += varu64::encode(length as u64, &mut out[total..]);
         }
 
@@ -141,6 +141,7 @@ impl<'a> CtlvRef<'a> {
         let total_len: usize;
 
         match varu64::decode(input) {
+            Err((_, 0)) => return Err((UnexpectedEndOfInput, 0)),
             Err((e, l)) => return Err((Type(e), l)),
             Ok((t @ 0...127, l)) => {
                 type_ = t;
@@ -217,5 +218,64 @@ impl<'a> CtlvRefMut<'a> {
             type_: self.type_,
             value: &self.value,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Assert that the given Ctlv encodes to the expected encoding, and that the
+    // expected encoding decodes to the Ctlv.
+    fn test_fixture(ctlv: &Ctlv, exp: &[u8]) {
+        assert_eq!(ctlv.encoding_length(), exp.len());
+        let mut foo = Vec::with_capacity(exp.len());
+        foo.resize(exp.len(), 0);
+
+        assert_eq!(ctlv.encode(&mut foo), exp.len());
+        assert_eq!(foo, exp);
+
+        let (dec, dec_len) = Ctlv::decode(exp).unwrap();
+        assert_eq!(&dec, ctlv);
+        assert_eq!(dec_len, exp.len());
+    }
+
+    #[test]
+    fn fixtures() {
+        test_fixture(&Ctlv {
+                          type_: 0,
+                          value: vec![42],
+                      },
+                     &[0, 42]);
+
+        test_fixture(&Ctlv {
+                          type_: 1,
+                          value: vec![42],
+                      },
+                     &[1, 42]);
+
+        test_fixture(&Ctlv {
+                          type_: 128,
+                          value: vec![42],
+                      },
+                     &[128, 1, 42]);
+
+        test_fixture(&Ctlv {
+                          type_: 247,
+                          value: vec![42],
+                      },
+                     &[247, 1, 42]);
+
+        test_fixture(&Ctlv {
+                          type_: 250,
+                          value: vec![42],
+                      },
+                     &[248, 250, 1, 42]);
+
+        assert_eq!(Ctlv::decode(&[]).unwrap_err(), (UnexpectedEndOfInput, 0));
+        assert_eq!(Ctlv::decode(&[247, 248, 1, 42]).unwrap_err(),
+                   (Length(VarU64Error::NonCanonical(1)), 3));
+        assert_eq!(Ctlv::decode(&[248, 0, 1, 42]).unwrap_err(),
+                   (Type(VarU64Error::NonCanonical(0)), 2));
     }
 }
