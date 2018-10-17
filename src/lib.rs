@@ -144,7 +144,7 @@ impl<'a> CtlvRef<'a> {
             Err((e, l)) => return Err((Type(e), l)),
             Ok((t @ 0...127, l)) => {
                 type_ = t;
-                length = 1 << (4 + (type_ >> 3));
+                length = 1 << (type_ >> 3);
                 total_len = l;
             }
             Ok((t, l)) => {
