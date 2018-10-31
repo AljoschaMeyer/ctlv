@@ -7,7 +7,7 @@ extern crate varu64;
 
 use varu64::DecodeError as VarU64Error;
 
-use std::{fmt, error};
+use std::{fmt, error, io};
 
 /// Everything that can go wrong when decoding a ctlv.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -63,6 +63,21 @@ impl Ctlv {
     /// Panics if the buffer is not large enough to hold the encoding.
     pub fn encode(&self, out: &mut [u8]) -> usize {
         self.as_ctlv_ref().encode(out)
+    }
+
+    /// Encodes this `Ctlv` into the writer, returning how many bytes have been written.
+    pub fn encode_write<W: io::Write>(&self, w: W) -> Result<usize, io::Error> {
+        self.as_ctlv_ref().encode_write(w)
+    }
+
+    /// Encodes this `Ctlv` as an owned `Vec<u8>`.
+    pub fn encode_vec(&self) -> Vec<u8> {
+        self.as_ctlv_ref().encode_vec()
+    }
+
+    /// Encodes this `Ctlv` as an owned `String`.
+    pub fn encode_string(&self) -> String {
+        self.as_ctlv_ref().encode_string()
     }
 
     /// Decode a `Ctlv` from the input buffer, returning it and the remaining input.
@@ -134,6 +149,32 @@ impl<'a> CtlvRef<'a> {
         return total + length;
     }
 
+    /// Encodes this `CtlvRef` into the writer, returning how many bytes have been written.
+    pub fn encode_write<W: io::Write>(&self, mut w: W) -> Result<usize, io::Error> {
+        let mut total = varu64::encode_write(self.type_, &mut w)?;
+        let length: usize = self.value.len();
+
+        if self.type_ >= 128 {
+            total += varu64::encode_write(length as u64, &mut w)?;
+        }
+
+        w.write_all(self.value)?;
+
+        Ok(total + length)
+    }
+
+    /// Encodes this `CtlvRef` as an owned `Vec<u8>`.
+    pub fn encode_vec(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(self.value.len());
+        self.encode_write(&mut out).unwrap();
+        out
+    }
+
+    /// Encodes this `CtlvRef` as an owned `String`.
+    pub fn encode_string(&self) -> String {
+        unsafe { String::from_utf8_unchecked(self.encode_vec()) }
+    }
+
     /// Decode a `CtlvRef` from the input buffer, returning it and the remaining input.
     pub fn decode(input: &'a [u8]) -> Result<(CtlvRef<'a>, &'a [u8]), (DecodeError, &'a [u8])> {
         let type_: u64;
@@ -194,6 +235,21 @@ impl<'a> CtlvRefMut<'a> {
     /// Panics if the buffer is not large enough to hold the encoding.
     pub fn encode(&self, out: &mut [u8]) -> usize {
         self.as_ctlv_ref().encode(out)
+    }
+
+    /// Encodes this `CtlvRefMut` into the writer, returning how many bytes have been written.
+    pub fn encode_write<W: io::Write>(&self, w: W) -> Result<usize, io::Error> {
+        self.as_ctlv_ref().encode_write(w)
+    }
+
+    /// Encodes this `CtlvRefMut` as an owned `Vec<u8>`.
+    pub fn encode_vec(&self) -> Vec<u8> {
+        self.as_ctlv_ref().encode_vec()
+    }
+
+    /// Encodes this `CtlvRefMut` as an owned `String`.
+    pub fn encode_string(&self) -> String {
+        self.as_ctlv_ref().encode_string()
     }
 
     // XXX Rust makes it really hard to write this one

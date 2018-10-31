@@ -6,4 +6,4 @@ edition = "2018"
 license = "AGPL-3.0"
 
 [dependencies]
-varu64 = "0.6.0"
+varu64 = "0.6.1"
