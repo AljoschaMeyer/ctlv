@@ -11,7 +11,6 @@ A ctlv consists of a `type` (unsigned 64 bit integer), a `length` (unsigned 64 b
 ### Binary Encoding
 
 The binary encodings is the concatenation of an encoding of the type, an encoding of the length (sometimes omitted) and the raw bytes of the value.
-An encoded ctlv is the concatenation of three parts: Type, length (sometimes omitted) and value.
 
 The `type` is an unsigned 64 bit integer, encoded as a [VarU64](https://github.com/AljoschaMeyer/varu64-rs). If `type` is `128` or more, it is followed by another VarU64 encoding the `length`. If `type` is less than `128`, the value of `length` is computed as `2 ^ (type >> 3)`. In both cases, the remainder of the encoding consists of `length` many bytes of payload (the `value`).
 
