@@ -9,7 +9,8 @@ fuzz_target!(|data: &[u8]| {
     // test that roundtrips work
     match CtlvRef::decode(data) {
         Err(_) => {}
-        Ok((ctlv, len)) => {
+        Ok((ctlv, tail)) => {
+            let len = data.len() - tail.len();
             let mut enc = Vec::with_capacity(len);
             enc.resize(len, 0);
             assert_eq!(ctlv.encode(&mut enc[..]), len);

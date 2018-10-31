@@ -65,9 +65,9 @@ impl Ctlv {
         self.as_ctlv_ref().encode(out)
     }
 
-    /// Decode a `Ctlv` from the input buffer, returning it and how many bytes were read.
-    pub fn decode(input: &[u8]) -> Result<(Ctlv, usize), (DecodeError, usize)> {
-        let (tmp, total_len) = CtlvRef::decode(input)?;
+    /// Decode a `Ctlv` from the input buffer, returning it and the remaining input.
+    pub fn decode(input: &[u8]) -> Result<(Ctlv, &[u8]), (DecodeError, &[u8])> {
+        let (tmp, tail) = CtlvRef::decode(input)?;
         let mut value = Vec::with_capacity(tmp.value.len());
         value.extend_from_slice(&tmp.value);
 
@@ -75,7 +75,7 @@ impl Ctlv {
                 type_: tmp.type_,
                 value,
             },
-            total_len))
+            tail))
     }
 
     /// Returns a `CtlvRef` that borrows its value from this `Ctlv`.
@@ -134,42 +134,41 @@ impl<'a> CtlvRef<'a> {
         return total + length;
     }
 
-    /// Decode a `CtlvRef` from the input buffer, returning it and how many bytes were read.
-    pub fn decode(input: &'a [u8]) -> Result<(CtlvRef<'a>, usize), (DecodeError, usize)> {
+    /// Decode a `CtlvRef` from the input buffer, returning it and the remaining input.
+    pub fn decode(input: &'a [u8]) -> Result<(CtlvRef<'a>, &'a [u8]), (DecodeError, &'a [u8])> {
         let type_: u64;
         let length: usize;
-        let total_len: usize;
+        let remaining: &'a [u8];
 
         match varu64::decode(input) {
-            Err((_, 0)) => return Err((UnexpectedEndOfInput, 0)),
-            Err((e, l)) => return Err((Type(e), l)),
-            Ok((t @ 0...127, l)) => {
+            Err((_, tail)) if tail.len() == 0 => return Err((UnexpectedEndOfInput, input)),
+            Err((e, tail)) => return Err((Type(e), tail)),
+            Ok((t @ 0...127, tail)) => {
                 type_ = t;
                 length = 1 << (type_ >> 3);
-                total_len = l;
+                remaining = tail;
             }
-            Ok((t, l)) => {
+            Ok((t, tail)) => {
                 type_ = t;
 
-                match varu64::decode(&input[l..]) {
-                    Err((e, l2)) => return Err((Length(e), l + l2)),
-                    Ok((len, l2)) => {
+                match varu64::decode(tail) {
+                    Err((e, tail2)) => return Err((Length(e), tail2)),
+                    Ok((len, tail2)) => {
                         length = len as usize;
-                        total_len = l + l2;
+                        remaining = tail2;
                     }
                 }
             }
         }
 
-        let data = &input[total_len..];
-        if data.len() < length {
-            return Err((UnexpectedEndOfInput, input.len()));
+        if remaining.len() < length {
+            return Err((UnexpectedEndOfInput, remaining));
         } else {
             return Ok((CtlvRef {
                            type_,
-                           value: &data[..length],
+                           value: &remaining[..length],
                        },
-                       total_len + length));
+                       &remaining[length..]));
         }
     }
 }
@@ -197,20 +196,45 @@ impl<'a> CtlvRefMut<'a> {
         self.as_ctlv_ref().encode(out)
     }
 
-    /// Decode a `CtlvRefMut` from the input buffer, returning it and how many bytes were read.
-    pub fn decode(input: &'a mut [u8]) -> Result<(CtlvRefMut<'a>, usize), (DecodeError, usize)> {
-        let (tmp, total_len) = CtlvRef::decode(input)?;
-        let tmp_type = tmp.type_;
-
-        let start = total_len - tmp.value.len();
-        let value = &mut input[start..total_len];
-
-        Ok((CtlvRefMut {
-                type_: tmp_type,
-                value,
-            },
-            total_len))
-    }
+    // XXX Rust makes it really hard to write this one
+    // /// Decode a `CtlvRefMut` from the input buffer, returning it and the remaining input.
+    // pub fn decode(input: &'a mut [u8])
+    //               -> Result<(CtlvRefMut<'a>, &mut [u8]), (DecodeError, &mut [u8])> {
+    //     let type_: u64;
+    //     let length: usize;
+    //     let remaining: &'a mut [u8];
+    //
+    //     match varu64::decode(input) {
+    //         Err((_, tail)) if tail.len() == 0 => return Err((UnexpectedEndOfInput, input)),
+    //         Err((e, tail)) => return Err((Type(e), tail)),
+    //         Ok((t @ 0...127, tail)) => {
+    //             type_ = t;
+    //             length = 1 << (type_ >> 3);
+    //             remaining = tail;
+    //         }
+    //         Ok((t, tail)) => {
+    //             type_ = t;
+    //
+    //             match varu64::decode(tail) {
+    //                 Err((e, tail2)) => return Err((Length(e), tail2)),
+    //                 Ok((len, tail2)) => {
+    //                     length = len as usize;
+    //                     remaining = tail2;
+    //                 }
+    //             }
+    //         }
+    //     }
+    //
+    //     if remaining.len() < length {
+    //         return Err((UnexpectedEndOfInput, remaining));
+    //     } else {
+    //         return Ok((CtlvRefMut {
+    //                        type_,
+    //                        value: &remaining[..length],
+    //                    },
+    //                    &remaining[length..]));
+    //     }
+    // }
 
     /// Returns a `CtlvRef` that borrows the same value as this `CtlvRefMut`.
     pub fn as_ctlv_ref(&self) -> CtlvRef {
@@ -235,9 +259,9 @@ mod tests {
         assert_eq!(ctlv.encode(&mut foo), exp.len());
         assert_eq!(foo, exp);
 
-        let (dec, dec_len) = Ctlv::decode(exp).unwrap();
+        let (dec, tail) = Ctlv::decode(exp).unwrap();
         assert_eq!(&dec, ctlv);
-        assert_eq!(dec_len, exp.len());
+        assert_eq!(tail, &[][..]);
     }
 
     #[test]
@@ -272,10 +296,11 @@ mod tests {
                       },
                      &[248, 250, 1, 42]);
 
-        assert_eq!(Ctlv::decode(&[]).unwrap_err(), (UnexpectedEndOfInput, 0));
+        assert_eq!(Ctlv::decode(&[]).unwrap_err(),
+                   (UnexpectedEndOfInput, &[][..]));
         assert_eq!(Ctlv::decode(&[247, 248, 1, 42]).unwrap_err(),
-                   (Length(VarU64Error::NonCanonical(1)), 3));
+                   (Length(VarU64Error::NonCanonical(1)), &[42][..]));
         assert_eq!(Ctlv::decode(&[248, 0, 1, 42]).unwrap_err(),
-                   (Type(VarU64Error::NonCanonical(0)), 2));
+                   (Type(VarU64Error::NonCanonical(0)), &[1, 42][..]));
     }
 }
